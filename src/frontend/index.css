@@ -1,0 +1,127 @@
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("/assets/fonts/Fraunces.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("/assets/fonts/Figtree.woff2") format("woff2");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark Forest Green theme with warm gold accents */
+    --background: 0.12 0.05 148;
+    --foreground: 0.92 0.02 148;
+
+    --card: 0.16 0.05 148;
+    --card-foreground: 0.92 0.02 148;
+
+    --popover: 0.16 0.05 148;
+    --popover-foreground: 0.92 0.02 148;
+
+    --primary: 0.72 0.16 75;
+    --primary-foreground: 0.1 0.03 75;
+
+    --secondary: 0.62 0.14 60;
+    --secondary-foreground: 0.1 0.03 60;
+
+    --muted: 0.20 0.05 148;
+    --muted-foreground: 0.55 0.05 148;
+
+    --accent: 0.62 0.14 60;
+    --accent-foreground: 0.1 0.03 60;
+
+    --destructive: 0.6 0.2 25;
+    --destructive-foreground: 0.92 0.02 148;
+
+    --border: 0.25 0.06 148;
+    --input: 0.25 0.06 148;
+    --ring: 0.72 0.16 75;
+
+    --radius: 1rem;
+
+    --chart-1: 0.72 0.16 75;
+    --chart-2: 0.62 0.14 60;
+    --chart-3: 0.72 0.1 155;
+    --chart-4: 0.5 0.14 135;
+    --chart-5: 0.6 0.1 160;
+
+    --sidebar: 0.13 0.04 148;
+    --sidebar-foreground: 0.92 0.02 148;
+    --sidebar-primary: 0.72 0.16 75;
+    --sidebar-primary-foreground: 0.1 0.03 75;
+    --sidebar-accent: 0.62 0.14 60;
+    --sidebar-accent-foreground: 0.1 0.03 60;
+    --sidebar-border: 0.25 0.06 148;
+    --sidebar-ring: 0.72 0.16 75;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    background-color: #0d1f12;
+  }
+  body {
+    background-color: #0d1f12;
+    @apply bg-background text-foreground;
+    font-family: "Figtree", sans-serif;
+    font-feature-settings: "ss01", "cv01";
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  #root {
+    background-color: #0d1f12;
+    min-height: 100vh;
+  }
+}
+
+/* Dark green gradient background */
+.meditation-bg {
+  background: linear-gradient(
+    to bottom,
+    #1a3520 0%,
+    #0d1f12 100%
+  ) !important;
+  min-height: 100vh;
+}
+
+/* Breathing ring pulse */
+@keyframes breathe-ring {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes breathe-ring-outer {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.08); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 12px oklch(0.72 0.18 75 / 0.4)); }
+  50% { filter: drop-shadow(0 0 28px oklch(0.72 0.18 75 / 0.8)); }
+}
+
+.ring-breathe { animation: breathe-ring 4s ease-in-out infinite; }
+.ring-breathe-outer { animation: breathe-ring-outer 4s ease-in-out infinite; }
+.ring-glow { animation: glow-pulse 4s ease-in-out infinite; }
+.ring-paused { animation-play-state: paused; }
+
+.font-timer {
+  font-family: "Fraunces", serif;
+  font-variant-numeric: tabular-nums;
+  font-optical-sizing: auto;
+}
