@@ -6,39 +6,113 @@ import { toast } from "sonner";
 import { useAddSession } from "../hooks/useQueries";
 
 const DURATIONS = [5, 10, 15, 20, 30];
+const INTERVAL_OPTIONS = [
+  { label: "Keine", value: 0 },
+  { label: "3 min", value: 3 },
+  { label: "5 min", value: 5 },
+];
 
-function playBellSound() {
+// Shared AudioContext that is created/resumed on user gesture
+let sharedAudioContext: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+    sharedAudioContext = new AudioContext();
+  }
+  return sharedAudioContext;
+}
+
+// Creates a simple reverb impulse response buffer
+function createReverbBuffer(
+  ctx: AudioContext,
+  duration: number,
+  decay: number,
+): AudioBuffer {
+  const sampleRate = ctx.sampleRate;
+  const length = sampleRate * duration;
+  const buffer = ctx.createBuffer(2, length, sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** decay;
+    }
+  }
+  return buffer;
+}
+
+// decay: seconds until the sound fades out completely
+async function playBellSound(decay = 4) {
   try {
-    const ctx = new AudioContext();
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
     const now = ctx.currentTime;
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
 
-    osc1.type = "sine";
-    osc1.frequency.setValueAtTime(528, now);
-    osc1.frequency.exponentialRampToValueAtTime(420, now + 3);
+    // Compressor to glue layers together
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 6;
+    compressor.ratio.value = 3;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
 
-    osc2.type = "sine";
-    osc2.frequency.setValueAtTime(792, now);
-    osc2.frequency.exponentialRampToValueAtTime(630, now + 3);
+    // Reverb (convolver)
+    const convolver = ctx.createConvolver();
+    convolver.buffer = createReverbBuffer(ctx, Math.min(decay * 0.6, 5), 2.5);
+    const reverbGain = ctx.createGain();
+    reverbGain.gain.value = 0.28;
 
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.35, now + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 4);
+    // Master gain
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0, now);
+    masterGain.gain.linearRampToValueAtTime(0.55, now + 0.06);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, now + decay);
 
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
+    compressor.connect(masterGain);
+    masterGain.connect(ctx.destination);
+    masterGain.connect(convolver);
+    convolver.connect(reverbGain);
+    reverbGain.connect(ctx.destination);
 
-    osc1.start(now);
-    osc2.start(now);
-    osc1.stop(now + 4);
-    osc2.stop(now + 4);
+    // Layer definition: [startHz, endHz, relativeGain]
+    const layers: [number, number, number][] = [
+      [210, 168, 0.45], // Sub-fundamental (deep darkness)
+      [420, 336, 0.38], // Fundamental
+      [648, 518, 0.2], // 2nd partial (slight inharmonic stretch)
+      [924, 738, 0.1], // 3rd partial (shimmer)
+    ];
 
-    setTimeout(() => ctx.close(), 5000);
+    for (const [startHz, endHz, relGain] of layers) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(startHz, now);
+      osc.frequency.exponentialRampToValueAtTime(endHz, now + decay);
+
+      gain.gain.value = relGain;
+
+      osc.connect(gain);
+      gain.connect(compressor);
+
+      osc.start(now);
+      osc.stop(now + decay + 0.05);
+    }
   } catch {
     // Audio not supported
+  }
+}
+
+// Warm up AudioContext on user gesture so it is ready when the timer ends
+function warmUpAudio() {
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -55,10 +129,12 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export default function TimerScreen() {
   const [selectedMinutes, setSelectedMinutes] = useState(10);
+  const [intervalMinutes, setIntervalMinutes] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(10 * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastIntervalBellRef = useRef<number>(0);
   const addSession = useAddSession();
 
   const totalSeconds = selectedMinutes * 60;
@@ -70,6 +146,7 @@ export default function TimerScreen() {
     setIsRunning(false);
     setIsFinished(false);
     setSecondsLeft(selectedMinutes * 60);
+    lastIntervalBellRef.current = 0;
   }, [selectedMinutes]);
 
   useEffect(() => {
@@ -84,23 +161,42 @@ export default function TimerScreen() {
           clearInterval(intervalRef.current!);
           setIsRunning(false);
           setIsFinished(true);
-          playBellSound();
+          playBellSound(4);
           addSession.mutate(BigInt(selectedMinutes));
           toast.success("Meditation abgeschlossen! 🙏", {
             description: `${selectedMinutes} Minuten gemeditiert.`,
           });
           return 0;
         }
-        return prev - 1;
+
+        const newSecondsLeft = prev - 1;
+        const elapsed = totalSeconds - newSecondsLeft;
+
+        // Interval bell logic: ring every N minutes of elapsed time
+        if (intervalMinutes > 0 && selectedMinutes > intervalMinutes) {
+          const intervalSeconds = intervalMinutes * 60;
+          const currentIntervalCount = Math.floor(elapsed / intervalSeconds);
+          if (currentIntervalCount > lastIntervalBellRef.current) {
+            lastIntervalBellRef.current = currentIntervalCount;
+            playBellSound(4);
+          }
+        }
+
+        return newSecondsLeft;
       });
     }, 1000);
     return () => clearInterval(intervalRef.current!);
-  }, [isRunning, selectedMinutes, addSession]);
+  }, [isRunning, selectedMinutes, totalSeconds, intervalMinutes, addSession]);
 
   const handleStartPause = () => {
+    warmUpAudio();
     if (isFinished) {
       reset();
       return;
+    }
+    // Play start bell (10 sec decay) only when starting fresh from the beginning
+    if (!isRunning && secondsLeft === totalSeconds) {
+      playBellSound(10);
     }
     setIsRunning((r) => !r);
   };
@@ -125,6 +221,32 @@ export default function TimerScreen() {
             {d} min
           </button>
         ))}
+      </div>
+
+      {/* Interval bell selector */}
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-xs text-muted-foreground font-body uppercase tracking-widest flex items-center gap-1.5">
+          <Bell className="w-3 h-3" />
+          Zwischenglocke
+        </span>
+        <div className="flex gap-2">
+          {INTERVAL_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              data-ocid="interval.button"
+              onClick={() => setIntervalMinutes(opt.value)}
+              className={[
+                "px-4 py-1.5 rounded-full text-sm font-body font-medium transition-all duration-300",
+                intervalMinutes === opt.value
+                  ? "bg-primary/90 text-primary-foreground shadow-glow"
+                  : "bg-card text-foreground/80 hover:text-foreground border border-border/50 hover:border-primary/40",
+              ].join(" ")}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Timer ring */}
